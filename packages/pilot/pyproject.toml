@@ -1,0 +1,4 @@
+[project]
+name = "specflow-phase5-pilot"
+version = "0.0.0"
+dependencies = []

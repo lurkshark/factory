@@ -1,25 +1,50 @@
-agent: claude
-base_branch: main
+agent: codex
+base_branch: codex/phase5-pilot-base
 remote: origin
-sandbox: docker
+sandbox: none
 docker_image: specflow-worker
 docker_mounts:
-  - specflow-agent-home:/home/worker
-attempt_timeout_minutes: 90
+- specflow-agent-home:/home/worker
+attempt_timeout_minutes: 5
 max_attempts_per_phase: 2
-max_changes: 10
-max_hours: 8
+max_changes: 1
+max_hours: 0.5
 limit_patterns:
-  - "usage limit"
-  - "rate limit"
-  - "limit reached"
-  - "limit will reset"
-  - "quota"
+- usage limit
+- rate limit
+- limit reached
+- limit will reset
+- quota
 limit_sleep_minutes: 30
 max_limit_waits: 16
 agent_commands:
-  claude: ["claude", "-p", "{prompt}", "--dangerously-skip-permissions", "--max-turns", "200"]
-  codex: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "{prompt}"]
+  claude:
+  - claude
+  - -p
+  - '{prompt}'
+  - --dangerously-skip-permissions
+  - --max-turns
+  - '200'
+  codex:
+  - codex
+  - exec
+  - --dangerously-bypass-approvals-and-sandbox
+  - '{prompt}'
 agent_commands_no_sandbox:
-  claude: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash", "--max-turns", "200"]
-  codex: ["codex", "exec", "--approve-for-me", "{prompt}"]
+  claude:
+  - claude
+  - -p
+  - '{prompt}'
+  - --permission-mode
+  - acceptEdits
+  - --allowedTools
+  - Read,Edit,Write,Glob,Grep,Bash
+  - --max-turns
+  - '200'
+  codex:
+  - codex
+  - exec
+  - --approve-for-me
+  - --model
+  - gpt-5.5
+  - '{prompt}'

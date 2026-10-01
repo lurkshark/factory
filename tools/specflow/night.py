@@ -1,11 +1,13 @@
-"""Supervised single-change worker; Git and verification belong to the host."""
+"""Night queue and single-change worker; Git and verification belong to the host."""
 
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 import os
 import re
+import shlex
 import subprocess
+import tempfile
 import time
 import traceback
 
@@ -15,6 +17,7 @@ from .cli import Parser, UsageError, apply_file
 from .coverage import coverage, references
 from .git import FileChange, Git, GitError
 from .markdown import Doc, InvalidDocument, parse
+from .pr import pr_body
 from .repository import Repository
 from .validation import change_items
 from .zones import Zones, package_path
@@ -95,9 +98,7 @@ def run_agent(prompt: str, log_path: Path, cfg: dict, repo_root: Path) -> AgentR
     template = (cfg[key] or defaults[key])[cfg["agent"]]
     command = [prompt if arg == "{prompt}" else arg for arg in template]
     if cfg["sandbox"] == "docker":
-        command = ["docker", "run", "--rm", "-v", f"{repo_root}:/workspace", "-w", "/workspace",
-                   *[arg for mount in cfg["docker_mounts"] for arg in ("-v", mount)],
-                   cfg["docker_image"], *command]
+        command = [*docker_command(cfg, repo_root), *command]
     timed_out = False
     try:
         result = subprocess.run(command, cwd=repo_root, input="", capture_output=True, text=True,
@@ -116,6 +117,24 @@ def run_agent(prompt: str, log_path: Path, cfg: dict, repo_root: Path) -> AgentR
     hit_limit = (exit_code != 0 and not timed_out and
                  any(re.search(pattern, output, re.IGNORECASE) for pattern in cfg["limit_patterns"]))
     return AgentResult(exit_code, output, timed_out, hit_limit)
+
+
+def docker_command(cfg: dict, root: Path, interactive: bool = False) -> list[str]:
+    return ["docker", "run", *(["-it"] if interactive else []), "--rm",
+            "-v", f"{root}:/workspace", "-w", "/workspace",
+            *[arg for mount in cfg["docker_mounts"] for arg in ("-v", mount)], cfg["docker_image"]]
+
+
+def remote_command(command: list[str], root: Path) -> str:
+    """Keep remote writes and GitHub calls replaceable without config keys."""
+    if os.environ.get("SPECFLOW_FAKE_REMOTE") == "1":
+        output = "FAKE " + shlex.join(command)
+        print(output, flush=True)
+        return output
+    result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    if result.returncode:
+        raise UsageError((result.stderr or result.stdout).strip() or f"{shlex.join(command)} failed")
+    return result.stdout.strip()
 
 
 def changed_files(git: Git) -> list[FileChange]:
@@ -157,11 +176,12 @@ def phase_prompt(change: Doc, root: Path, phase: int, attempt: int, maximum: int
 
 
 class Worker:
-    def __init__(self, root: Path, cfg: dict, deadline: float | None = None):
+    def __init__(self, root: Path, cfg: dict, deadline: float | None = None, skip_blocked: bool = False):
         self.root = root.resolve()
         self.cfg = cfg
         self.git = Git(self.root)
         self.deadline = deadline if deadline is not None else time.monotonic() + cfg["max_hours"] * 3600
+        self.skip_blocked = skip_blocked
         self.log_dir = self.root / ".night" / date.today().isoformat()
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.log_dir / "log.md"
@@ -284,7 +304,8 @@ class Worker:
         archive = change.path.parent / "archive" / change.path.name
         applied = False
         try:
-            apply_file(repo, change.path)
+            for message in apply_file(repo, change.path, now=self.skip_blocked):
+                self.log(message.render(self.root))
             applied = True
             errors = [m.render(self.root) for m in Repository(self.root).check() if m.level == "ERROR"]
             if not errors:
@@ -315,10 +336,16 @@ class Worker:
             prompt = phase_prompt(change, self.root, phase, attempt, maximum, output)
             self.log(f"{change.path.stem}: phase {phase}, attempt {attempt} of {maximum}")
             previous_head = self.git.run("rev-parse", "HEAD").strip()
-            result = run_agent(prompt, self.log_dir / f"{change.path.stem}-{phase}-{attempt}.log", self.cfg, self.root)
+            attempt_cfg = self.cfg | {"attempt_timeout_minutes": min(
+                self.cfg["attempt_timeout_minutes"], max(0.001, (self.deadline - time.monotonic()) / 60))}
+            result = run_agent(prompt, self.log_dir / f"{change.path.stem}-{phase}-{attempt}.log", attempt_cfg, self.root)
             if self.git.run("rev-parse", "HEAD").strip() != previous_head:
                 self.git.run("reset", "--soft", previous_head)
                 self.log("WARN agent committed; commits were undone")
+            if result.timed_out and time.monotonic() >= self.deadline:
+                self.discard()
+                self.log("STOPPED night deadline reached")
+                return "STOPPED", ""
             if result.hit_limit:
                 wait = self.cfg["limit_sleep_minutes"] * 60
                 if limit_waits >= self.cfg["max_limit_waits"] or time.monotonic() + wait > self.deadline:
@@ -366,6 +393,95 @@ class Worker:
         return "DONE"
 
 
+def check_repository(root: Path, log=print) -> bool:
+    messages = Repository(root).check()
+    for message in messages:
+        log(message.render(root))
+    return not any(message.level == "ERROR" for message in messages)
+
+
+def dry_run(root: Path, cfg: dict, skip_blocked: bool, maximum: int) -> int:
+    if cfg["sandbox"] == "none":
+        print("WARN sandbox: none; agent runs directly on the host")
+    if not check_repository(root):
+        return 1
+    repo = Repository(root)
+    count = 0
+    for path in repo.change_paths():
+        change = repo.load_change(path)
+        if "blocked" in change.fm:
+            if not skip_blocked:
+                print(f"queue halted at {path.stem}: {change.fm['blocked']}")
+                break
+            print(f"SKIP {path.stem}: {change.fm['blocked']}")
+            continue
+        phases = "evals, code" if is_spec_change(change) else "code"
+        print(f"PLAN {path.stem} ({change.fm['module']}): {phases}")
+        count += 1
+        if count >= maximum:
+            break
+    return 0
+
+
+def run_night(root: Path, cfg: dict, skip_blocked: bool, maximum: int) -> int:
+    git = Git(root)
+    if git.run("status", "--porcelain"):
+        raise UsageError("working tree must be clean")
+    remote_command(["gh", "auth", "status"], root)
+    git.run("fetch", cfg["remote"])
+    today = date.today().isoformat()
+    branch = f"night/{today}"
+    local = set(git.run("for-each-ref", "--format=%(refname:short)", "refs/heads/").splitlines())
+    remote = {line.split("\t", 1)[1].removeprefix("refs/heads/")
+              for line in git.run("ls-remote", "--heads", cfg["remote"]).splitlines()}
+    suffix = 2
+    while branch in local | remote:
+        branch = f"night/{today}-{suffix}"
+        suffix += 1
+    base = f"{cfg['remote']}/{cfg['base_branch']}"
+    git.run("switch", "-c", branch, base)
+    worker = Worker(root, cfg, skip_blocked=skip_blocked)
+    if cfg["sandbox"] == "none":
+        worker.log("WARN sandbox: none; agent runs directly on the host")
+    if not check_repository(root, worker.log):
+        return 1
+    worker.deadline = time.monotonic() + cfg["max_hours"] * 3600
+    done_count = 0
+    while done_count < maximum and time.monotonic() < worker.deadline:
+        repo = Repository(root)
+        change = None
+        for path in repo.change_paths():
+            candidate = repo.load_change(path)
+            if "blocked" not in candidate.fm:
+                change = candidate
+                break
+            if not skip_blocked:
+                worker.log(f"queue halted at {path.stem}: {candidate.fm['blocked']}")
+                break
+        if change is None:
+            break
+        result = worker.process_change(change)
+        if result == "STOPPED" or (result == "BLOCKED" and not skip_blocked):
+            break
+        if result == "DONE":
+            done_count += 1
+    if not int(git.run("rev-list", "--count", f"{base}..HEAD").strip()):
+        git.run("switch", cfg["base_branch"])
+        git.run("branch", "-D", branch)
+        return 0
+    remote_command(["git", "push", "-u", cfg["remote"], branch], root)
+    body = pr_body(root, f"{base}..HEAD", worker.log_path)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md") as body_file:
+        body_file.write(body)
+        body_file.flush()
+        output = remote_command(["gh", "pr", "create", "--base", cfg["base_branch"], "--head", branch,
+                                 "--title", f"Night {today}: {done_count} change(s)",
+                                 "--body-file", body_file.name], root)
+    if output:
+        worker.log(output)
+    return 0
+
+
 def main(argv: list[str] | None = None, root: Path | None = None) -> int:
     root = (root or Path.cwd()).resolve()
     try:
@@ -373,8 +489,24 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
         commands = parser.add_subparsers(dest="command", required=True, parser_class=Parser)
         once = commands.add_parser("once")
         once.add_argument("change_file")
+        run = commands.add_parser("run")
+        run.add_argument("--dry-run", action="store_true")
+        run.add_argument("--skip-blocked", action="store_true")
+        run.add_argument("--max-changes", type=int)
+        commands.add_parser("login")
         args = parser.parse_args(argv)
         cfg = load_config(root)
+        if args.command == "login":
+            if cfg["sandbox"] != "docker":
+                raise UsageError("login requires sandbox: docker")
+            return subprocess.run([*docker_command(cfg, root, interactive=True), cfg["agent"]], cwd=root).returncode
+        if args.command == "run":
+            maximum = args.max_changes if args.max_changes is not None else cfg["max_changes"]
+            if maximum < 1:
+                raise UsageError("--max-changes must be a positive integer")
+            if args.dry_run:
+                return dry_run(root, cfg, args.skip_blocked, maximum)
+            return run_night(root, cfg, args.skip_blocked, maximum)
         git = Git(root)
         if git.run("status", "--porcelain"):
             raise UsageError("working tree must be clean")
