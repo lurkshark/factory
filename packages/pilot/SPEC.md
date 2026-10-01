@@ -15,3 +15,7 @@ evals:
 TODO: one paragraph describing this module's purpose.
 
 ## Specs
+
+### PILOT-001
+Calling the public answer() function MUST return the integer 42.
+
