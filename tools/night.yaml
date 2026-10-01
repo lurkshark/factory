@@ -1,0 +1,25 @@
+agent: claude
+base_branch: main
+remote: origin
+sandbox: docker
+docker_image: specflow-worker
+docker_mounts:
+  - specflow-agent-home:/home/worker
+attempt_timeout_minutes: 90
+max_attempts_per_phase: 2
+max_changes: 10
+max_hours: 8
+limit_patterns:
+  - "usage limit"
+  - "rate limit"
+  - "limit reached"
+  - "limit will reset"
+  - "quota"
+limit_sleep_minutes: 30
+max_limit_waits: 16
+agent_commands:
+  claude: ["claude", "-p", "{prompt}", "--dangerously-skip-permissions", "--max-turns", "200"]
+  codex: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "{prompt}"]
+agent_commands_no_sandbox:
+  claude: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep,Bash", "--max-turns", "200"]
+  codex: ["codex", "exec", "--approve-for-me", "{prompt}"]

@@ -14,3 +14,13 @@
 - Phase 3 keeps empty `packages/` and `changes/archive/` directories in Git with `.gitkeep` files; Python bytecode artifacts are ignored alongside the required workflow artifacts.
 - Phase 3 CI adds a directory guard to the §11 coverage loop so an unmatched `packages/*/` glob is skipped in the starter repository with no modules.
 - Manual setup: enable branch protection on `main` requiring the `check` workflow and a pull request before merging.
+- Phase 4 verifies Claude Code 2.1.203 (`claude --help`) and Codex CLI 0.156.0 (`codex exec --help`); Codex's retired `--full-auto` is replaced with `--approve-for-me`, which selects the workspace-write sandbox and conflicts with an explicit `--sandbox` flag.
+- Phase 4 resolves omitted agent command maps to the documented argument arrays inside `run_agent`; supplied command maps must define both supported agents, and unknown configuration keys are errors.
+- `night once` requires a clean tree and the non-blocked queue head, runs static checks before the agent, and does not require GitHub authentication because it performs no remote operations.
+- Blocking or a clean deadline/limit stop restores tracked edits and removes non-ignored untracked attempt files throughout the repo; blocking retains the current change's valid prose edits, while malformed agent-written change files are restored from HEAD before inserting the reason.
+- Host-side apply/check failures roll back the spec/archive edits while retaining implementation work for retry; no-op phases use an empty commit so the two-phase commit protocol is preserved.
+- `night once` exits 1 for blocked changes, 2 for usage/tooling errors, and 0 for completion or a clean deadline/limit stop; run logs use the host's local calendar date.
+- A worker attempt may not retarget the change to a different module; this is a verification failure and retries retain the original module in the prompt.
+- Append-only verification uses file existence at the phase's starting HEAD: changes to existing files (including type changes) and renames are forbidden, while a new file may be staged and edited before its first host commit.
+- Phase 4 supervised acceptance on 2026-10-01 completed a one-module pilot with Codex CLI 0.156.0, model `gpt-5.5`, and `sandbox: none`: fail-first eval, implementation, both trailer-bearing commits, spec apply/archive, coverage, static checks, and history checks passed; the locally configured `gpt-6.1-sol` model was rejected by this CLI/account, so only the pilot command array selected the supported model.
+- Coding-agent subscription terms regarding unattended use were not verified by the implementer.

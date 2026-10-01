@@ -1,8 +1,9 @@
 # factory
 
-Phases 1–3 of the spec-driven workflow implement parsing, static validation,
+Phases 1–4 of the spec-driven workflow implement parsing, static validation,
 projected specs, applying and archiving changes, JUnit eval coverage, commit
-history checks, and PR descriptions, plus agent instructions, playbooks, and CI.
+history checks, and PR descriptions, plus agent instructions, playbooks, CI,
+and a supervised single-change worker.
 
 Requires Python 3.11+, Git, and PyYAML:
 
@@ -40,9 +41,30 @@ The GitHub Actions `check` workflow runs tooling tests, static validation, modul
 and system evals when configured, and PR history checks. It also works before any
 modules exist. Enable branch protection on `main` requiring `check` and a PR.
 
-The executable `tools/night` entrypoint is in place; its Python worker and
-configuration arrive in Phase 4, the night loop and sandbox in Phase 5, and
-regeneration in Phase 6.
+Run one queued change on the current branch with a clean working tree:
+
+```sh
+tools/night once changes/NNNN-slug.md
+```
+
+Configure the agent and its argument lists in `tools/night.yaml`. Defaults use
+Claude inside Docker; for a supervised host run, select `sandbox: none` and an
+authenticated installed agent. The Docker image and full nightly loop arrive
+in Phase 5. The installed agent must support the configured flags and model.
+
+`once` verifies the queue head, runs the eval and implementation playbooks,
+and creates `evals(<module>)` and `impl(<module>)` commits with `Change:` trailers.
+Maintenance changes skip the eval phase. Success applies the spec change and
+archives it. Failed attempts retain earlier work for a retry; exhausted attempts
+discard that phase's edits and commit a quoted `blocked:` reason. A completed
+eval commit stays when implementation blocks. The host undoes agent-created
+commits before checking edits.
+
+Logs and captured agent output live in `.night/YYYY-MM-DD/`. Usage limits pause
+and retry the same attempt; the wait budget or deadline ends the run cleanly.
+`once` returns 0 for completion or a clean stop, 1 for a blocked change or failed
+static checks, and 2 for configuration/usage errors. It stays on the current
+branch and performs no remote operations. Regeneration arrives in Phase 6.
 
 The tests use complete miniature repositories under `tools/tests/fixtures/`
 and verify CLI behavior as well as the Python functions.
