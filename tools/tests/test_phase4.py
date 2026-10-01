@@ -90,7 +90,13 @@ class WorkerFixture(unittest.TestCase):
         self.write("packages/pilot/pyproject.toml", '[project]\nname = "pilot"\ndependencies = []\n')
         self.change = self.write("changes/0001-answer.md", CHANGE)
         self.write("tools/eval-template.py", EVAL)
-        self.cfg = yaml.safe_load((TOOLS / "night.yaml").read_text())
+        # Start with tooling defaults, independent of this checkout's agent,
+        # branch, timeout, and limits (a real pilot may customize all of them).
+        self.cfg = load_config(self.root)
+        self.cfg["agent_commands"] = {
+            "claude": [sys.executable, str(FAKE), "{prompt}"],
+            "codex": [sys.executable, str(FAKE), "{prompt}"],
+        }
         self.cfg["sandbox"] = "none"
         self.cfg["limit_sleep_minutes"] = 0.001
         self.cfg["agent_commands_no_sandbox"] = {
