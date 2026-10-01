@@ -1,9 +1,11 @@
 # factory
 
-Phases 1–4 of the spec-driven workflow implement parsing, static validation,
+All six phases of the spec-driven workflow are implemented: parsing, static validation,
 projected specs, applying and archiving changes, JUnit eval coverage, commit
 history checks, and PR descriptions, plus agent instructions, playbooks, CI,
-and a supervised single-change worker.
+a supervised single-change worker, the nightly queue and Docker sandbox,
+and isolated module regeneration. See the [implementation verification](docs/implementation-verification.md)
+for phase acceptance evidence and remaining environment setup.
 
 Requires Python 3.11+, Git, and PyYAML:
 
@@ -14,7 +16,7 @@ tools/spec --help
 ```
 
 Available commands: `check`, `list`, `show`, `next`, `new-change`, `new-module`,
-`apply`, `coverage`, `check-commits`, and `pr-body`.
+`apply`, `coverage`, `check-commits`, `pr-body`, and `regen`.
 
 ```sh
 tools/spec coverage <module> [--with-change changes/NNNN-slug.md]
@@ -49,8 +51,8 @@ tools/night once changes/NNNN-slug.md
 
 Configure the agent and its argument lists in `tools/night.yaml`. Defaults use
 Claude inside Docker; for a supervised host run, select `sandbox: none` and an
-authenticated installed agent. The Docker image and full nightly loop arrive
-in Phase 5. The installed agent must support the configured flags and model.
+authenticated installed agent. The installed agent must support the configured
+flags and model.
 
 `once` verifies the queue head, runs the eval and implementation playbooks,
 and creates `evals(<module>)` and `impl(<module>)` commits with `Change:` trailers.
@@ -64,7 +66,33 @@ Logs and captured agent output live in `.night/YYYY-MM-DD/`. Usage limits pause
 and retry the same attempt; the wait budget or deadline ends the run cleanly.
 `once` returns 0 for completion or a clean stop, 1 for a blocked change or failed
 static checks, and 2 for configuration/usage errors. It stays on the current
-branch and performs no remote operations. Regeneration arrives in Phase 6.
+branch and performs no remote operations.
+
+Build the sandbox and authenticate its agent before Docker-backed runs:
+
+```sh
+docker build -t specflow-worker .devcontainer
+tools/night login
+tools/night run --dry-run
+tools/night run [--skip-blocked] [--max-changes N]
+```
+
+`run` starts from the remote base branch, processes queued changes until its
+configured completion or time limit, pushes a `night/YYYY-MM-DD` branch, and
+opens a pull request. A blocked queue head halts the loop unless `--skip-blocked`
+is supplied. Review and merge the resulting PR manually.
+
+Regenerate disposable source in an isolated worktree with a clean working tree:
+
+```sh
+tools/spec regen <module> [--agent]
+```
+
+This creates `.worktrees/regen-<module>` on `regen/<module>-<YYYYMMDD>` and
+deletes source files that do not match the module's `preserve` globs. Without
+`--agent`, it prints instructions for following the regeneration playbook.
+With `--agent`, it runs the configured agent and verifies eval coverage. The
+branch and worktree remain available for review.
 
 The tests use complete miniature repositories under `tools/tests/fixtures/`
 and verify CLI behavior as well as the Python functions.
