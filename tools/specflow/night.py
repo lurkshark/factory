@@ -120,8 +120,20 @@ def run_agent(prompt: str, log_path: Path, cfg: dict, repo_root: Path) -> AgentR
 
 
 def docker_command(cfg: dict, root: Path, interactive: bool = False) -> list[str]:
+    metadata = []
+    if (root / ".git").is_file():
+        # Linked worktrees point outside the workspace mount. Expose just their
+        # shared Git metadata, read-only, and override host-specific paths.
+        git = Git(root)
+        git_dir = Path(git.run("rev-parse", "--absolute-git-dir").strip())
+        common_dir = (root / git.run("rev-parse", "--git-common-dir").strip()).resolve()
+        container_git_dir = "/specflow-git/" + git_dir.relative_to(common_dir).as_posix()
+        metadata = ["-v", f"{common_dir}:/specflow-git:ro",
+                    "-e", f"GIT_DIR={container_git_dir}", "-e", "GIT_WORK_TREE=/workspace",
+                    "-e", "GIT_OPTIONAL_LOCKS=0"]
     return ["docker", "run", *(["-it"] if interactive else []), "--rm",
             "-v", f"{root}:/workspace", "-w", "/workspace",
+            *metadata,
             *[arg for mount in cfg["docker_mounts"] for arg in ("-v", mount)], cfg["docker_image"]]
 
 

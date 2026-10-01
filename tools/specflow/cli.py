@@ -92,6 +92,9 @@ def parser() -> Parser:
     body = commands.add_parser("pr-body")
     body.add_argument("rev_range")
     body.add_argument("--notes")
+    regen = commands.add_parser("regen")
+    regen.add_argument("module")
+    regen.add_argument("--agent", action="store_true")
     return result
 
 
@@ -221,6 +224,9 @@ def run(args, root: Path) -> int:
     if args.command == "pr-body":
         print(pr_body(root, args.rev_range, root / args.notes if args.notes else None), end="")
         return 0
+    if args.command == "regen":
+        from .regen import regenerate
+        return regenerate(root, args.module, args.agent)
     repo = Repository(root)
     if args.command == "check":
         return report(repo.check(), root)
