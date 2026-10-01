@@ -21,7 +21,8 @@ class Message:
         except ValueError:
             path = self.path.as_posix()
         location = f"{path}:{self.line}" if self.line else path
-        return f"{self.level} {self.code} {location}: {self.message}"
+        message = self.message.replace("\r", " ").replace("\n", " ")
+        return f"{self.level} {self.code} {location}: {message}"
 
 
 class InvalidDocument(Exception):

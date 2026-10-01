@@ -1,4 +1,4 @@
-"""Phase 1 command-line interface."""
+"""Command-line interface for spec validation, evals, and history."""
 
 import argparse
 import os
@@ -7,7 +7,11 @@ import subprocess
 import traceback
 
 from .apply import apply_change
+from .coverage import coverage
+from .git import GitError
+from .history import check_commits
 from .markdown import InvalidDocument, Message, parse
+from .pr import pr_body
 from .repository import Repository
 from .validation import CHANGE_NAME, KINDS, NAME, PREFIX, SLUG, flow_line, spec_items, specs_section
 
@@ -80,6 +84,14 @@ def parser() -> Parser:
     apply = commands.add_parser("apply")
     apply.add_argument("change_file")
     apply.add_argument("--now", action="store_true")
+    evals = commands.add_parser("coverage")
+    evals.add_argument("module")
+    evals.add_argument("--with-change")
+    history = commands.add_parser("check-commits")
+    history.add_argument("rev_range")
+    body = commands.add_parser("pr-body")
+    body.add_argument("rev_range")
+    body.add_argument("--notes")
     return result
 
 
@@ -204,6 +216,11 @@ def apply_file(repo: Repository, path: Path, now: bool = False) -> list[Message]
 
 
 def run(args, root: Path) -> int:
+    if args.command == "check-commits":
+        return report(check_commits(root, args.rev_range), root)
+    if args.command == "pr-body":
+        print(pr_body(root, args.rev_range, root / args.notes if args.notes else None), end="")
+        return 0
     repo = Repository(root)
     if args.command == "check":
         return report(repo.check(), root)
@@ -254,6 +271,12 @@ def run(args, root: Path) -> int:
         path = root / args.change_file
         messages = apply_file(repo, path, args.now)
         return report(messages, root)
+    if args.command == "coverage":
+        require_module(repo, args.module)
+        result = coverage(repo, args.module, root / args.with_change if args.with_change else None)
+        for spec in result.specs:
+            print(spec.render())
+        return report(result.messages, root)
     raise UsageError("unknown command")
 
 
@@ -263,7 +286,7 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
         return run(parser().parse_args(argv), root)
     except InvalidDocument as exc:
         return report(exc.messages, root)
-    except UsageError as exc:
+    except (UsageError, GitError) as exc:
         print(f"ERROR usage spec: {str(exc).replace(chr(10), ' ')}")
         return 2
     except Exception as exc:
