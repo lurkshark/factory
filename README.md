@@ -7,13 +7,21 @@ a supervised single-change worker, the nightly queue and Docker sandbox,
 and isolated module regeneration. See the [implementation verification](docs/implementation-verification.md)
 for phase acceptance evidence and remaining environment setup.
 
-Requires Python 3.11+, Git, and PyYAML:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) once and
+have Git available. The launchers automatically create `tools/.venv/`, select
+Python 3.11+ (downloading it if needed), and install the locked dependencies:
 
 ```sh
-python3 -m pip install -r tools/requirements.txt
-PYTHONPATH=tools python3 -m unittest discover -s tools/tests -t tools
+tools/spec check
 tools/spec --help
+PYTHONPATH=tools uv run --project tools --locked python -m unittest discover -s tools/tests -t tools
 ```
+
+No environment activation or manual dependency installation is required.
+Dependencies are declared in `tools/pyproject.toml` and pinned in
+`tools/uv.lock`. After intentionally changing dependencies, update the lockfile
+with `uv lock --project tools` and commit both files. CI and Docker use the
+same lockfile; launchers reject an outdated lockfile instead of changing it.
 
 Available commands: `check`, `list`, `show`, `next`, `new-change`, `new-module`,
 `apply`, `coverage`, `check-commits`, `pr-body`, and `regen`.
@@ -71,7 +79,7 @@ branch and performs no remote operations.
 Build the sandbox and authenticate its agent before Docker-backed runs:
 
 ```sh
-docker build -t specflow-worker .devcontainer
+docker build -t specflow-worker -f .devcontainer/Dockerfile .
 tools/night login
 tools/night run --dry-run
 tools/night run [--skip-blocked] [--max-changes N]

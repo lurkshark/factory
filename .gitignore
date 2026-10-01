@@ -3,5 +3,6 @@
 **/evals/.results/
 
 # Python tooling artifacts
+tools/.venv/
 __pycache__/
 *.py[cod]

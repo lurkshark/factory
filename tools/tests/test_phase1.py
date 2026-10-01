@@ -505,6 +505,8 @@ class CommandTests(FixtureTest):
         subprocess.run(["git", "init", "-q"], cwd=fresh, check=True, capture_output=True)
         shutil.copytree(TOOLS / "specflow", fresh / "tools/specflow", ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copy2(TOOLS / "spec", fresh / "tools/spec")
+        for name in ("pyproject.toml", "uv.lock"):
+            shutil.copy2(TOOLS / name, fresh / "tools" / name)
         (fresh / "SYSTEM.md").write_text("---\nname: system\nid_prefix: SYS\n---\n\n# System\n\nPython fixture.\n\n## Specs\n", encoding="utf-8")
         env = os.environ.copy()
         env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]

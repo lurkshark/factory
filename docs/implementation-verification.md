@@ -41,3 +41,16 @@ project decisions when adding the actual product, enable the documented branch
 protection settings, and review the coding-agent subscription terms for
 unattended use. These are deployment/account setup tasks rather than missing
 implementation phases.
+
+## Tooling environment update
+
+On 2026-10-01 the developer requested the uv project approach, superseding
+the original requirements-file setup. The launchers now use
+`tools/pyproject.toml` and the committed `tools/uv.lock`; CI and Docker use the
+same locked dependency versions. The Docker environment is stored outside the
+mounted checkout so host and Linux environments remain independent.
+
+All 185 tests passed on macOS and in the rebuilt Docker image with networking
+disabled and the checkout mounted read-only. Both Docker launchers also passed
+static validation and the nightly dry run. The README documents the current
+commands and repository-root Docker build context.

@@ -1,4 +1,5 @@
 #!/bin/sh
 # tools/night
-cd "$(git rev-parse --show-toplevel)" || exit 2
-PYTHONPATH=tools exec python3 -m specflow.night "$@"
+repo_root=$(git rev-parse --show-toplevel) || exit 2
+cd "$repo_root" || exit 2
+PYTHONPATH=tools exec uv run --project tools --locked python -m specflow.night "$@"
