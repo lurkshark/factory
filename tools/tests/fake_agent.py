@@ -1,7 +1,8 @@
-"""Scripted agent used only by Phase 4 integration tests."""
+"""Scripted agent used only by worker and night-loop integration tests."""
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,8 @@ calls.append(prompt)
 calls_path.write_text(json.dumps(calls))
 phase = 1 if "implement-evals.md" in prompt else 2
 action = os.environ.get("SPECFLOW_TEST_ACTION", "happy")
+change_path = root / next(line.removeprefix("Change file: ") for line in prompt.splitlines()
+                         if line.startswith("Change file: "))
 
 if action == "limit-once" and len(calls) == 1 or action == "limit-always":
     print("Usage limit reached")
@@ -43,10 +46,22 @@ def write(path, text):
     file.write_text(text)
 
 def block():
-    path = root / "changes/0001-answer.md"
+    path = change_path
     text = path.read_text()
     opening, body = text.split("---", 2)[1:]
     path.write_text("---" + opening + "blocked: 'Need a clearer interface.'\n---" + body)
+
+if action == "queue-block-middle":
+    if change_path.name.startswith("0002-"):
+        block()
+    elif phase == 1:
+        ids = re.findall(r"^### (PILOT-\d+)", (root / "packages/pilot/SPEC.md").read_text(), re.MULTILINE)
+        ids += re.findall(r"^### (PILOT-\d+)", change_path.read_text(), re.MULTILINE)
+        source = (root / "tools/eval-template.py").read_text().replace('(\"PILOT-001\", \"PILOT-002\")', repr(tuple(ids)))
+        write("packages/pilot/evals/run.py", source)
+    else:
+        write("packages/pilot/src/answer.py", "def answer():\n    return 42\n")
+    sys.exit(0)
 
 if action == f"block-{phase}":
     write("packages/pilot/src/answer.py", "unauthorized work\n")

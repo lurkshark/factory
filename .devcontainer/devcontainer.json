@@ -1,0 +1,9 @@
+{
+  "name": "specflow-worker",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "worker",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "workspaceFolder": "/workspace",
+  "mounts": ["source=specflow-agent-home,target=/home/worker,type=volume"],
+  "updateRemoteUserUID": false
+}
