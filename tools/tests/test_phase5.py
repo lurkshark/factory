@@ -6,7 +6,9 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import time
+import unittest
 from unittest.mock import patch
 
 from specflow.git import Git
@@ -318,3 +320,23 @@ class SandboxTests(WorkerFixture):
         self.assertIn("USER worker", dockerfile)
         self.assertIn("HOME=/home/worker", dockerfile)
         self.assertNotIn("gh auth", dockerfile)
+
+
+class FixtureIsolationTests(unittest.TestCase):
+    def test_worker_fixture_ignores_checkout_night_configuration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary)
+            (checkout / "night.yaml").write_text(
+                "agent: codex\nbase_branch: codex/custom-pilot\n"
+                "attempt_timeout_minutes: 5\nmax_changes: 1\nmax_hours: 0.5\n")
+            with patch("tests.test_phase4.TOOLS", checkout):
+                fixture = WorkerFixture()
+                fixture.setUp()
+                try:
+                    self.assertEqual("claude", fixture.cfg["agent"])
+                    self.assertEqual("main", fixture.cfg["base_branch"])
+                    self.assertEqual(90, fixture.cfg["attempt_timeout_minutes"])
+                    self.assertEqual(10, fixture.cfg["max_changes"])
+                    self.assertEqual(8, fixture.cfg["max_hours"])
+                finally:
+                    fixture.doCleanups()
