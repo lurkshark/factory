@@ -1,0 +1,7 @@
+.night/
+.worktrees/
+**/evals/.results/
+
+# Python tooling artifacts
+__pycache__/
+*.py[cod]

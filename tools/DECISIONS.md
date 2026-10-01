@@ -11,3 +11,6 @@
 - Git history uses NUL-delimited records and explicit rename detection; H01/H02 examine both rename paths, and H03 checks commit and parent metadata so deleting a module or removing protection cannot hide an append-only edit.
 - PR descriptions deduplicate and sort file paths, show both rename paths, group changes in first-commit order, and list other commits as abbreviated SHA plus subject; state comes from the change's archive/pending location at HEAD.
 - PR descriptions preserve the raw Decisions body, use `none` for an empty body or an absent blocked reason, and omit empty path lists.
+- Phase 3 keeps empty `packages/` and `changes/archive/` directories in Git with `.gitkeep` files; Python bytecode artifacts are ignored alongside the required workflow artifacts.
+- Phase 3 CI adds a directory guard to the §11 coverage loop so an unmatched `packages/*/` glob is skipped in the starter repository with no modules.
+- Manual setup: enable branch protection on `main` requiring the `check` workflow and a pull request before merging.

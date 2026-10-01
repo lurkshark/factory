@@ -1,0 +1,31 @@
+name: check
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r tools/requirements.txt
+      # PROJECT TOOLCHAIN: add language setup and dependency install steps here.
+      - run: python3 -m unittest discover -s tools/tests -t tools
+        env: { PYTHONPATH: tools }
+      - run: tools/spec check
+      - name: Coverage for every module
+        run: |
+          set -e
+          for d in packages/*/; do
+            [ -d "$d" ] || continue
+            tools/spec coverage "$(basename "$d")"
+          done
+          if grep -q '^evals:' SYSTEM.md; then tools/spec coverage system; fi
+      - name: History checks
+        if: github.event_name == 'pull_request'
+        run: tools/spec check-commits "origin/${{ github.base_ref }}..HEAD"
